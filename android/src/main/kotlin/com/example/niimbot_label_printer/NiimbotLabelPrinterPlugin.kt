@@ -132,10 +132,6 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
                         // Establish the connection
                         bluetoothSocket?.connect()
                         
-                        // FIX: Add delay to ensure socket is fully initialized
-                        // This allows the Android Bluetooth stack to complete the connection handshake
-                        Thread.sleep(2000) // 2 seconds
-                        
                         // Verify socket is connected and streams are available
                         if (bluetoothSocket?.isConnected == true) {
                             try {
@@ -143,8 +139,34 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
                                 val inputStream = bluetoothSocket?.inputStream
                                 
                                 if (outputStream != null && inputStream != null) {
-                                    Log.d(TAG, "Socket and streams initialized successfully")
-                                    result.success(true)
+                                    // FIX: Initialize bidirectional communication with a heartbeat command
+                                    // This "primes" the input/output streams so the first real print works
+                                    // Without this, the first print's commands may be lost or ignored
+                                    try {
+                                        Log.d(TAG, "Initializing printer communication...")
+                                        
+                                        // Send heartbeat command (0xDC) to establish communication
+                                        val heartbeatPacket = createPacket(0xDC.toByte(), byteArrayOf(1))
+                                        outputStream.write(heartbeatPacket)
+                                        outputStream.flush()
+                                        
+                                        Thread.sleep(200) // Brief wait for response
+                                        
+                                        // Read the response to clear the input buffer
+                                        if (inputStream.available() > 0) {
+                                            val buffer = ByteArray(1024)
+                                            val bytes = inputStream.read(buffer)
+                                            Log.d(TAG, "Printer responded with $bytes bytes - communication established")
+                                        }
+                                        
+                                        Log.d(TAG, "Socket and streams initialized successfully")
+                                        result.success(true)
+                                    } catch (e: Exception) {
+                                        Log.w(TAG, "Printer initialization warning: ${e.message}")
+                                        // Even if initialization fails, still return success
+                                        // as the connection itself is established
+                                        result.success(true)
+                                    }
                                 } else {
                                     Log.e(TAG, "Failed to initialize streams")
                                     bluetoothSocket?.close()
@@ -290,6 +312,22 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
             }
             outputStream
         }
+    }
+
+    private fun createPacket(type: Byte, data: ByteArray): ByteArray {
+        val packetData = ByteBuffer.allocate(data.size + 7)
+            .put(0x55.toByte()).put(0x55.toByte()) // Header
+            .put(type)
+            .put(data.size.toByte())
+            .put(data)
+
+        var checksum = type.toInt() xor data.size
+        data.forEach { checksum = checksum xor it.toInt() }
+
+        packetData.put(checksum.toByte())
+            .put(0xAA.toByte()).put(0xAA.toByte()) // Footer
+
+        return packetData.array()
     }
 
     private fun disconncet() {

@@ -1,7 +1,8 @@
 ## 0.0.3
 
 * Fix: Resolved Bluetooth socket initialization issue causing blank labels on first print
-* Improvement: Added 2-second delay after socket connection to ensure full initialization
+* Fix: Initialize bidirectional communication after connection by sending heartbeat command
+* Fix: Prime input/output streams with read/write cycle before first print
 * Improvement: Added stream verification and error handling in connect method
 * Improvement: Enhanced disconnect method for better resource cleanup
 * Improvement: Added logging for better debugging
