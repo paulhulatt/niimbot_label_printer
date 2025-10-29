@@ -128,13 +128,47 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
                         bluetoothSocket = device?.createRfcommSocketToServiceRecord(
                             UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
                         )
+                        
+                        // Establish the connection
                         bluetoothSocket?.connect()
-                        result.success(true)
+                        
+                        // FIX: Add delay to ensure socket is fully initialized
+                        // This allows the Android Bluetooth stack to complete the connection handshake
+                        Thread.sleep(2000) // 2 seconds
+                        
+                        // Verify socket is connected and streams are available
+                        if (bluetoothSocket?.isConnected == true) {
+                            try {
+                                val outputStream = bluetoothSocket?.outputStream
+                                val inputStream = bluetoothSocket?.inputStream
+                                
+                                if (outputStream != null && inputStream != null) {
+                                    Log.d(TAG, "Socket and streams initialized successfully")
+                                    result.success(true)
+                                } else {
+                                    Log.e(TAG, "Failed to initialize streams")
+                                    bluetoothSocket?.close()
+                                    bluetoothSocket = null
+                                    result.success(false)
+                                }
+                            } catch (e: IOException) {
+                                Log.e(TAG, "Stream access error: ${e.message}")
+                                bluetoothSocket?.close()
+                                bluetoothSocket = null
+                                result.success(false)
+                            }
+                        } else {
+                            Log.e(TAG, "Socket not connected")
+                            result.success(false)
+                        }
                     } else {
                         result.success(false)
                     }
                 } catch (e: IOException) {
+                    Log.e(TAG, "Connection error: ${e.message}")
                     e.printStackTrace()
+                    bluetoothSocket?.close()
+                    bluetoothSocket = null
                     result.success(false)
                 }
             }
@@ -259,7 +293,30 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
     }
 
     private fun disconncet() {
-        bluetoothSocket?.close()
+        try {
+            // Close streams first (if accessible)
+            try {
+                bluetoothSocket?.outputStream?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error closing output stream: ${e.message}")
+            }
+            
+            try {
+                bluetoothSocket?.inputStream?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error closing input stream: ${e.message}")
+            }
+            
+            // Then close socket
+            bluetoothSocket?.close()
+            
+            // Clear reference
+            bluetoothSocket = null
+            
+            Log.d(TAG, "Disconnected successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Disconnect error: ${e.message}")
+        }
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
