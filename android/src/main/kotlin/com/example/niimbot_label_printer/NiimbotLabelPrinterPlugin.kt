@@ -23,6 +23,7 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.util.UUID
@@ -45,6 +46,8 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
     private var permissionGranted: Boolean = false
 
     private var bluetoothSocket: BluetoothSocket? = null
+    private var outputStream: OutputStream? = null
+    private var inputStream: InputStream? = null
     private lateinit var mac: String
     private lateinit var niimbotPrinter: NiimbotPrinter
 
@@ -132,49 +135,47 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
                         // Establish the connection
                         bluetoothSocket?.connect()
                         
-                        // Verify socket is connected and streams are available
+                        // Verify socket is connected and store streams
                         if (bluetoothSocket?.isConnected == true) {
                             try {
-                                val outputStream = bluetoothSocket?.outputStream
-                                val inputStream = bluetoothSocket?.inputStream
+                                // FIX: Get and STORE the streams as member variables
+                                // This ensures we use the same stream instances throughout
+                                // rather than getting fresh (potentially uninitialized) references each time
+                                outputStream = bluetoothSocket?.outputStream
+                                inputStream = bluetoothSocket?.inputStream
                                 
                                 if (outputStream != null && inputStream != null) {
-                                    // FIX: Initialize bidirectional communication with a heartbeat command
-                                    // This "primes" the input/output streams so the first real print works
-                                    // Without this, the first print's commands may be lost or ignored
+                                    Log.d(TAG, "Streams obtained and stored successfully")
+                                    
+                                    // Optional: Send heartbeat to verify communication
                                     try {
-                                        Log.d(TAG, "Initializing printer communication...")
-                                        
-                                        // Send heartbeat command (0xDC) to establish communication
                                         val heartbeatPacket = createPacket(0xDC.toByte(), byteArrayOf(1))
-                                        outputStream.write(heartbeatPacket)
-                                        outputStream.flush()
+                                        outputStream!!.write(heartbeatPacket)
+                                        outputStream!!.flush()
+                                        Thread.sleep(200)
                                         
-                                        Thread.sleep(200) // Brief wait for response
-                                        
-                                        // Read the response to clear the input buffer
-                                        if (inputStream.available() > 0) {
+                                        if (inputStream!!.available() > 0) {
                                             val buffer = ByteArray(1024)
-                                            val bytes = inputStream.read(buffer)
-                                            Log.d(TAG, "Printer responded with $bytes bytes - communication established")
+                                            val bytes = inputStream!!.read(buffer)
+                                            Log.d(TAG, "Heartbeat successful: $bytes bytes")
                                         }
-                                        
-                                        Log.d(TAG, "Socket and streams initialized successfully")
-                                        result.success(true)
                                     } catch (e: Exception) {
-                                        Log.w(TAG, "Printer initialization warning: ${e.message}")
-                                        // Even if initialization fails, still return success
-                                        // as the connection itself is established
-                                        result.success(true)
+                                        Log.w(TAG, "Heartbeat warning (non-fatal): ${e.message}")
                                     }
+                                    
+                                    result.success(true)
                                 } else {
                                     Log.e(TAG, "Failed to initialize streams")
+                                    outputStream = null
+                                    inputStream = null
                                     bluetoothSocket?.close()
                                     bluetoothSocket = null
                                     result.success(false)
                                 }
                             } catch (e: IOException) {
                                 Log.e(TAG, "Stream access error: ${e.message}")
+                                outputStream = null
+                                inputStream = null
                                 bluetoothSocket?.close()
                                 bluetoothSocket = null
                                 result.success(false)
@@ -224,15 +225,17 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
                 // Copiar los bytes al Bitmap
                 bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(bytes))
 
-                bluetoothSocket?.let { socket ->
-                    niimbotPrinter = NiimbotPrinter(mContext, socket)
-                    // Aquí puedes usar el bitmap para imprimir
-                    // Por ejemplo:
+                // FIX: Use stored streams instead of socket
+                if (outputStream != null && inputStream != null) {
+                    niimbotPrinter = NiimbotPrinter(mContext, outputStream!!, inputStream!!)
                     GlobalScope.launch {
                         niimbotPrinter.printBitmap(bitmap, density = density, labelType = labelType, rotate = rotate, invertColor = invertColor)
                         result.success(true)
                     }
-                } ?: result.success(false) //println("No hay conexión Bluetooth establecida")
+                } else {
+                    Log.e(TAG, "No hay conexión Bluetooth establecida o streams no disponibles")
+                    result.success(false)
+                }
             } else {
                 println("Datos de imagen inválidos o incompletos")
                 println("bytes: $bytes")
@@ -332,15 +335,15 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
 
     private fun disconncet() {
         try {
-            // Close streams first (if accessible)
+            // Close stored streams first
             try {
-                bluetoothSocket?.outputStream?.close()
+                outputStream?.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Error closing output stream: ${e.message}")
             }
             
             try {
-                bluetoothSocket?.inputStream?.close()
+                inputStream?.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Error closing input stream: ${e.message}")
             }
@@ -348,7 +351,9 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
             // Then close socket
             bluetoothSocket?.close()
             
-            // Clear reference
+            // Clear all references
+            outputStream = null
+            inputStream = null
             bluetoothSocket = null
             
             Log.d(TAG, "Disconnected successfully")
