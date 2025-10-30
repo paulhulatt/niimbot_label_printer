@@ -147,20 +147,46 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
                                 if (outputStream != null && inputStream != null) {
                                     Log.d(TAG, "Streams obtained and stored successfully")
                                     
-                                    // Optional: Send heartbeat to verify communication
+                                    // FIX: Initialize printer communication immediately after connection
+                                    // Send multiple commands to fully establish the communication pattern
+                                    // This ensures the printer is ready before the first real print job
                                     try {
+                                        Log.d(TAG, "Initializing printer state...")
+                                        
+                                        // Command 1: Heartbeat - establishes basic communication
                                         val heartbeatPacket = createPacket(0xDC.toByte(), byteArrayOf(1))
                                         outputStream!!.write(heartbeatPacket)
                                         outputStream!!.flush()
-                                        Thread.sleep(200)
-                                        
+                                        Thread.sleep(150)
                                         if (inputStream!!.available() > 0) {
                                             val buffer = ByteArray(1024)
-                                            val bytes = inputStream!!.read(buffer)
-                                            Log.d(TAG, "Heartbeat successful: $bytes bytes")
+                                            inputStream!!.read(buffer)
                                         }
+                                        
+                                        // Command 2: Get printer info - exercises bidirectional communication
+                                        val infoPacket = createPacket(0x40, byteArrayOf(1)) // RFIDINFO
+                                        outputStream!!.write(infoPacket)
+                                        outputStream!!.flush()
+                                        Thread.sleep(150)
+                                        if (inputStream!!.available() > 0) {
+                                            val buffer = ByteArray(1024)
+                                            inputStream!!.read(buffer)
+                                        }
+                                        
+                                        // Command 3: Allow print clear - initializes print state
+                                        val clearPacket = createPacket(0x20, byteArrayOf(1))
+                                        outputStream!!.write(clearPacket)
+                                        outputStream!!.flush()
+                                        Thread.sleep(150)
+                                        if (inputStream!!.available() > 0) {
+                                            val buffer = ByteArray(1024)
+                                            inputStream!!.read(buffer)
+                                        }
+                                        
+                                        Log.d(TAG, "Printer initialization complete")
                                     } catch (e: Exception) {
-                                        Log.w(TAG, "Heartbeat warning (non-fatal): ${e.message}")
+                                        Log.w(TAG, "Printer initialization warning: ${e.message}")
+                                        // Non-fatal - continue even if initialization has issues
                                     }
                                     
                                     result.success(true)
