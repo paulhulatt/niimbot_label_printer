@@ -1,6 +1,5 @@
 package com.example.niimbot_label_printer
 
-import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -10,22 +9,26 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.ByteBuffer
 import kotlin.experimental.or
 import kotlin.math.ceil
 
 // https://github.com/AndBondStyle/niimprint/blob/main/readme.md
-class NiimbotPrinter(private val context: Context, private val bluetoothSocket: BluetoothSocket) {
+// FIX: Accept streams directly instead of socket to ensure we use the same stream instances
+class NiimbotPrinter(private val context: Context, private val outputStream: OutputStream, private val inputStream: InputStream) {
 
     private suspend fun sendCommand(requestCode: Byte, data: ByteArray): ByteArray = withContext(Dispatchers.IO) {
         val packet = createPacket(requestCode, data)
-        bluetoothSocket.outputStream.write(packet)
-        bluetoothSocket.outputStream.flush()
+        // FIX: Use the stored streams passed from plugin
+        outputStream.write(packet)
+        outputStream.flush()
 
         Thread.sleep(100) //delay(100) // Ajusta este delay según sea necesario
 
         val buffer = ByteArray(1024)
-        val bytes = bluetoothSocket.inputStream.read(buffer)
+        val bytes = inputStream.read(buffer)
         return@withContext buffer.copyOfRange(0, bytes)
     }
 
@@ -69,6 +72,11 @@ class NiimbotPrinter(private val context: Context, private val bluetoothSocket: 
         setLabelType(labelType)
         //println("Starting print...")
         startPrint()
+        //send a heartbeat to nullify dropped packet issue
+        // This absorbs the first dropped packet on Bluetooth connections
+        heartbeat()
+        //println("Allowing print clear...")
+        allowPrintClear()
         //println("Starting page print...")
         startPagePrint()
         //println("Setting image dimensions...")
@@ -78,8 +86,9 @@ class NiimbotPrinter(private val context: Context, private val bluetoothSocket: 
         //println("Printing image...")
 
         for (packet in encodeImage(bitmap)) {
-            bluetoothSocket.outputStream.write(packet)
-            bluetoothSocket.outputStream.flush()
+            // FIX: Use stored stream instead of accessing socket
+            outputStream.write(packet)
+            outputStream.flush()
             delay(10) // Pequeña pausa entre paquetes
         }
 

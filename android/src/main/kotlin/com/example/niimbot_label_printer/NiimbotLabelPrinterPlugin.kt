@@ -23,6 +23,7 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 import java.nio.ByteBuffer
 import java.util.UUID
@@ -45,6 +46,8 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
     private var permissionGranted: Boolean = false
 
     private var bluetoothSocket: BluetoothSocket? = null
+    private var outputStream: OutputStream? = null
+    private var inputStream: InputStream? = null
     private lateinit var mac: String
     private lateinit var niimbotPrinter: NiimbotPrinter
 
@@ -128,13 +131,65 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
                         bluetoothSocket = device?.createRfcommSocketToServiceRecord(
                             UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
                         )
+                        
+                        // Establish the connection
                         bluetoothSocket?.connect()
-                        result.success(true)
+                        
+                        // Verify socket is connected and store streams
+                        if (bluetoothSocket?.isConnected == true) {
+                            try {
+                                // FIX: Get and STORE the streams as member variables
+                                // This ensures we use the same stream instances throughout
+                                // rather than getting fresh (potentially uninitialized) references each time
+                                outputStream = bluetoothSocket?.outputStream
+                                inputStream = bluetoothSocket?.inputStream
+                                
+                                if (outputStream != null && inputStream != null) {
+                                    Log.d(TAG, "Streams obtained and stored successfully")
+                                    
+                                    // FIX: Initialize printer by sending a complete dummy print job
+                                    // This fully establishes the entire print pipeline including image data transfer
+                                    try {
+                                        Log.d(TAG, "Initializing printer with dummy print job...")
+                                        
+                                        // Send a minimal 1x1 white pixel print to initialize everything
+                                        sendDummyPrint(outputStream!!, inputStream!!)
+                                        
+                                        Log.d(TAG, "Printer initialization complete")
+                                    } catch (e: Exception) {
+                                        Log.w(TAG, "Printer initialization warning: ${e.message}")
+                                        // Non-fatal - continue even if initialization has issues
+                                    }
+                                    
+                                    result.success(true)
+                                } else {
+                                    Log.e(TAG, "Failed to initialize streams")
+                                    outputStream = null
+                                    inputStream = null
+                                    bluetoothSocket?.close()
+                                    bluetoothSocket = null
+                                    result.success(false)
+                                }
+                            } catch (e: IOException) {
+                                Log.e(TAG, "Stream access error: ${e.message}")
+                                outputStream = null
+                                inputStream = null
+                                bluetoothSocket?.close()
+                                bluetoothSocket = null
+                                result.success(false)
+                            }
+                        } else {
+                            Log.e(TAG, "Socket not connected")
+                            result.success(false)
+                        }
                     } else {
                         result.success(false)
                     }
                 } catch (e: IOException) {
+                    Log.e(TAG, "Connection error: ${e.message}")
                     e.printStackTrace()
+                    bluetoothSocket?.close()
+                    bluetoothSocket = null
                     result.success(false)
                 }
             }
@@ -168,15 +223,17 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
                 // Copiar los bytes al Bitmap
                 bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(bytes))
 
-                bluetoothSocket?.let { socket ->
-                    niimbotPrinter = NiimbotPrinter(mContext, socket)
-                    // Aquí puedes usar el bitmap para imprimir
-                    // Por ejemplo:
+                // FIX: Use stored streams instead of socket
+                if (outputStream != null && inputStream != null) {
+                    niimbotPrinter = NiimbotPrinter(mContext, outputStream!!, inputStream!!)
                     GlobalScope.launch {
                         niimbotPrinter.printBitmap(bitmap, density = density, labelType = labelType, rotate = rotate, invertColor = invertColor)
                         result.success(true)
                     }
-                } ?: result.success(false) //println("No hay conexión Bluetooth establecida")
+                } else {
+                    Log.e(TAG, "No hay conexión Bluetooth establecida o streams no disponibles")
+                    result.success(false)
+                }
             } else {
                 println("Datos de imagen inválidos o incompletos")
                 println("bytes: $bytes")
@@ -258,8 +315,102 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
         }
     }
 
+    private fun createPacket(type: Byte, data: ByteArray): ByteArray {
+        val packetData = ByteBuffer.allocate(data.size + 7)
+            .put(0x55.toByte()).put(0x55.toByte()) // Header
+            .put(type)
+            .put(data.size.toByte())
+            .put(data)
+
+        var checksum = type.toInt() xor data.size
+        data.forEach { checksum = checksum xor it.toInt() }
+
+        packetData.put(checksum.toByte())
+            .put(0xAA.toByte()).put(0xAA.toByte()) // Footer
+
+        return packetData.array()
+    }
+    
+    private fun sendDummyPrint(output: OutputStream, input: InputStream) {
+        // Send a complete minimal print job (1x1 white pixel) to initialize the print pipeline
+        // This ensures all printer state is properly set up before the first real print
+        
+        fun sendCmd(cmd: Byte, data: ByteArray) {
+            val packet = createPacket(cmd, data)
+            output.write(packet)
+            output.flush()
+            Thread.sleep(50)
+            // Try to read response
+            if (input.available() > 0) {
+                val buf = ByteArray(1024)
+                input.read(buf)
+            }
+        }
+        
+        // Minimal print sequence
+        sendCmd(0x21, byteArrayOf(3))  // Set density to 3
+        sendCmd(0x23, byteArrayOf(1))  // Set label type to 1
+        sendCmd(0x01, byteArrayOf(1))  // Start print
+        sendCmd(0xDC.toByte(), byteArrayOf(1))  // Heartbeat (absorb dropped packet)
+        sendCmd(0x20, byteArrayOf(1))  // Allow print clear
+        sendCmd(0x03, byteArrayOf(1))  // Start page print
+        
+        // Set 1x1 dimension
+        val dimData = ByteBuffer.allocate(4).putShort(1).putShort(1).array()
+        sendCmd(0x13, dimData)
+        
+        // Set quantity 1
+        val qtyData = ByteBuffer.allocate(2).putShort(1).array()
+        sendCmd(0x15, qtyData)
+        
+        // Send single white pixel (no black pixels)
+        val imageHeader = ByteBuffer.allocate(6)
+            .putShort(0)  // y = 0
+            .put(0.toByte()).put(0.toByte()).put(0.toByte())
+            .put(1.toByte())
+            .array()
+        val imageData = imageHeader + byteArrayOf(0)  // 1 byte of white
+        sendCmd(0x85.toByte(), imageData)
+        
+        // End page print
+        sendCmd(0xE3.toByte(), byteArrayOf(1))
+        
+        // Wait briefly for print status
+        Thread.sleep(100)
+        
+        // End print
+        sendCmd(0xF3.toByte(), byteArrayOf(1))
+        
+        Log.d(TAG, "Dummy print job completed")
+    }
+
     private fun disconncet() {
-        bluetoothSocket?.close()
+        try {
+            // Close stored streams first
+            try {
+                outputStream?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error closing output stream: ${e.message}")
+            }
+            
+            try {
+                inputStream?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error closing input stream: ${e.message}")
+            }
+            
+            // Then close socket
+            bluetoothSocket?.close()
+            
+            // Clear all references
+            outputStream = null
+            inputStream = null
+            bluetoothSocket = null
+            
+            Log.d(TAG, "Disconnected successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Disconnect error: ${e.message}")
+        }
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
