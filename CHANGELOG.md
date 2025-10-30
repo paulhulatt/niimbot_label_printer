@@ -1,9 +1,12 @@
 ## 0.0.3
 
-* Fix: Resolved Bluetooth socket initialization issue causing blank labels on first print
+* Fix: Resolved Bluetooth first-packet-drop issue causing blank labels on first print
+* Fix: Added heartbeat command after startPrint() to absorb dropped packet (documented Niimbot Bluetooth protocol issue)
+* Fix: Added allowPrintClear() call in proper sequence before startPagePrint()
 * Fix: Store OutputStream and InputStream as member variables after connection
 * Fix: Pass stored streams to NiimbotPrinter instead of letting it access socket getters repeatedly
 * Fix: Prevents uninitialized stream instances from being used on first print
+* Improvement: Corrected print command sequence to match Niimbot protocol specification
 * Improvement: Added stream verification and error handling in connect method
 * Improvement: Enhanced disconnect method to properly close and clear stored streams
 * Improvement: Added logging for better debugging

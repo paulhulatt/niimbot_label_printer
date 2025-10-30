@@ -73,7 +73,10 @@ class NiimbotPrinter(private val context: Context, private val outputStream: Out
         //println("Starting print...")
         startPrint()
         //send a heartbeat to nullify dropped packet issue
+        // This absorbs the first dropped packet on Bluetooth connections
         heartbeat()
+        //println("Allowing print clear...")
+        allowPrintClear()
         //println("Starting page print...")
         startPagePrint()
         //println("Setting image dimensions...")
