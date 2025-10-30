@@ -72,6 +72,8 @@ class NiimbotPrinter(private val context: Context, private val outputStream: Out
         setLabelType(labelType)
         //println("Starting print...")
         startPrint()
+        //send a heartbeat to nullify dropped packet issue
+        heartbeat()
         //println("Starting page print...")
         startPagePrint()
         //println("Setting image dimensions...")
