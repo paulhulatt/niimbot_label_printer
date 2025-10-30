@@ -1,6 +1,6 @@
 name: niimbot_label_printer
 description: "Print labels using Niimbot label printers."
-version: 0.0.3
+version: 0.0.4
 homepage: https://github.com/andresperezmelo/niimbot_label_printer
 repository: https://github.com/andresperezmelo/niimbot_label_printer
 issue_tracker: https://github.com/andresperezmelo/niimbot_label_printer/issues
