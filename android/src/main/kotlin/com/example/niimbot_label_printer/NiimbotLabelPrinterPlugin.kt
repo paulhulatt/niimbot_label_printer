@@ -147,41 +147,13 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
                                 if (outputStream != null && inputStream != null) {
                                     Log.d(TAG, "Streams obtained and stored successfully")
                                     
-                                    // FIX: Initialize printer communication immediately after connection
-                                    // Send multiple commands to fully establish the communication pattern
-                                    // This ensures the printer is ready before the first real print job
+                                    // FIX: Initialize printer by sending a complete dummy print job
+                                    // This fully establishes the entire print pipeline including image data transfer
                                     try {
-                                        Log.d(TAG, "Initializing printer state...")
+                                        Log.d(TAG, "Initializing printer with dummy print job...")
                                         
-                                        // Command 1: Heartbeat - establishes basic communication
-                                        val heartbeatPacket = createPacket(0xDC.toByte(), byteArrayOf(1))
-                                        outputStream!!.write(heartbeatPacket)
-                                        outputStream!!.flush()
-                                        Thread.sleep(150)
-                                        if (inputStream!!.available() > 0) {
-                                            val buffer = ByteArray(1024)
-                                            inputStream!!.read(buffer)
-                                        }
-                                        
-                                        // Command 2: Get printer info - exercises bidirectional communication
-                                        val infoPacket = createPacket(0x40, byteArrayOf(1)) // RFIDINFO
-                                        outputStream!!.write(infoPacket)
-                                        outputStream!!.flush()
-                                        Thread.sleep(150)
-                                        if (inputStream!!.available() > 0) {
-                                            val buffer = ByteArray(1024)
-                                            inputStream!!.read(buffer)
-                                        }
-                                        
-                                        // Command 3: Allow print clear - initializes print state
-                                        val clearPacket = createPacket(0x20, byteArrayOf(1))
-                                        outputStream!!.write(clearPacket)
-                                        outputStream!!.flush()
-                                        Thread.sleep(150)
-                                        if (inputStream!!.available() > 0) {
-                                            val buffer = ByteArray(1024)
-                                            inputStream!!.read(buffer)
-                                        }
+                                        // Send a minimal 1x1 white pixel print to initialize everything
+                                        sendDummyPrint(outputStream!!, inputStream!!)
                                         
                                         Log.d(TAG, "Printer initialization complete")
                                     } catch (e: Exception) {
@@ -357,6 +329,59 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
             .put(0xAA.toByte()).put(0xAA.toByte()) // Footer
 
         return packetData.array()
+    }
+    
+    private fun sendDummyPrint(output: OutputStream, input: InputStream) {
+        // Send a complete minimal print job (1x1 white pixel) to initialize the print pipeline
+        // This ensures all printer state is properly set up before the first real print
+        
+        fun sendCmd(cmd: Byte, data: ByteArray) {
+            val packet = createPacket(cmd, data)
+            output.write(packet)
+            output.flush()
+            Thread.sleep(50)
+            // Try to read response
+            if (input.available() > 0) {
+                val buf = ByteArray(1024)
+                input.read(buf)
+            }
+        }
+        
+        // Minimal print sequence
+        sendCmd(0x21, byteArrayOf(3))  // Set density to 3
+        sendCmd(0x23, byteArrayOf(1))  // Set label type to 1
+        sendCmd(0x01, byteArrayOf(1))  // Start print
+        sendCmd(0xDC.toByte(), byteArrayOf(1))  // Heartbeat (absorb dropped packet)
+        sendCmd(0x20, byteArrayOf(1))  // Allow print clear
+        sendCmd(0x03, byteArrayOf(1))  // Start page print
+        
+        // Set 1x1 dimension
+        val dimData = ByteBuffer.allocate(4).putShort(1).putShort(1).array()
+        sendCmd(0x13, dimData)
+        
+        // Set quantity 1
+        val qtyData = ByteBuffer.allocate(2).putShort(1).array()
+        sendCmd(0x15, qtyData)
+        
+        // Send single white pixel (no black pixels)
+        val imageHeader = ByteBuffer.allocate(6)
+            .putShort(0)  // y = 0
+            .put(0.toByte()).put(0.toByte()).put(0.toByte())
+            .put(1.toByte())
+            .array()
+        val imageData = imageHeader + byteArrayOf(0)  // 1 byte of white
+        sendCmd(0x85.toByte(), imageData)
+        
+        // End page print
+        sendCmd(0xE3.toByte(), byteArrayOf(1))
+        
+        // Wait briefly for print status
+        Thread.sleep(100)
+        
+        // End print
+        sendCmd(0xF3.toByte(), byteArrayOf(1))
+        
+        Log.d(TAG, "Dummy print job completed")
     }
 
     private fun disconncet() {
