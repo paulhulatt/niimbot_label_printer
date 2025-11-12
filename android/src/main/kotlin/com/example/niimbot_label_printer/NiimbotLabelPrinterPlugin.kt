@@ -209,6 +209,7 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
             val invertColor = (datosImagen["invertColor"] as? Boolean) ?: false
             val density = (datosImagen["density"] as? Int) ?: 3
             val labelType = (datosImagen["labelType"] as? Int) ?: 1
+            val quantity = (datosImagen["quantity"] as? Int) ?: 1
             //println("0. width: $width height: $height")
 
             if (bytes != null && width > 0 && height > 0) {
@@ -227,7 +228,7 @@ class NiimbotLabelPrinterPlugin : FlutterPlugin, MethodCallHandler {
                 if (outputStream != null && inputStream != null) {
                     niimbotPrinter = NiimbotPrinter(mContext, outputStream!!, inputStream!!)
                     GlobalScope.launch {
-                        niimbotPrinter.printBitmap(bitmap, density = density, labelType = labelType, rotate = rotate, invertColor = invertColor)
+                        niimbotPrinter.printBitmap(bitmap, density = density, labelType = labelType, rotate = rotate, invertColor = invertColor, quantity = quantity)
                         result.success(true)
                     }
                 } else {

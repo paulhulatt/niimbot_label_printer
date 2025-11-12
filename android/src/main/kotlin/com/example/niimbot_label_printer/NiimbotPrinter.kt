@@ -25,7 +25,7 @@ class NiimbotPrinter(private val context: Context, private val outputStream: Out
         outputStream.write(packet)
         outputStream.flush()
 
-        Thread.sleep(100) //delay(100) // Ajusta este delay según sea necesario
+        Thread.sleep(50) //delay(100) // Ajusta este delay según sea necesario
 
         val buffer = ByteArray(1024)
         val bytes = inputStream.read(buffer)
@@ -64,47 +64,80 @@ class NiimbotPrinter(private val context: Context, private val outputStream: Out
         if(invertColor) {
             bitmap = bitmap.invert()
         }
-        //println("Loading image...")
-        //val bitmap = loadImageFromAssets(imageName)
-        //println("Setting label density...")
+        println("printBitmap: Starting with quantity=$quantity, density=$density, labelType=$labelType")
+        println("Setting label density...")
         setLabelDensity(density)
-        //println("Setting label type...")
+        println("Setting label type...")
         setLabelType(labelType)
-        //println("Starting print...")
+        println("Starting print...")
         startPrint()
         //send a heartbeat to nullify dropped packet issue
         // This absorbs the first dropped packet on Bluetooth connections
+        println("Sending heartbeat...")
         heartbeat()
-        //println("Allowing print clear...")
+        println("Allowing print clear...")
         allowPrintClear()
-        //println("Starting page print...")
-        startPagePrint()
-        //println("Setting image dimensions...")
-        setDimension(height, width)
-        //println("Setting quantity...")
-        setQuantity(quantity)
-        //println("Printing image...")
+        
+        
+        // FIX: Loop the page print sequence for each copy
+        // The printer doesn't handle quantity automatically, so we need to repeat the sequence
+        println("Starting print loop for quantity: $quantity")
+        for (copy in 1..quantity) {
+            println("Starting page print for copy $copy of $quantity...")
+            startPagePrint()
+            println("startPagePrint() completed for copy $copy")
+            setQuantity(1)
+            println("Setting image dimensions: width=$width, height=$height")
+            setDimension(height, width) // Set to 1 per page since we're looping manually
+            println("setDimension(height, width) completed for copy $copy")
+            println("Printing image for copy $copy...")
 
-        for (packet in encodeImage(bitmap)) {
-            // FIX: Use stored stream instead of accessing socket
-            outputStream.write(packet)
-            outputStream.flush()
-            delay(10) // Pequeña pausa entre paquetes
+            var packetCount = 0
+            for (packet in encodeImage(bitmap)) {
+                // FIX: Use stored stream instead of accessing socket
+                outputStream.write(packet)
+                outputStream.flush()
+                //delay(10) // Pequeña pausa entre paquetes
+                packetCount++
+            }
+            println("Sent $packetCount image packets for copy $copy")
+
+            println("Ending page print for copy $copy...")
+            endPagePrint()
+            println("endPagePrint() completed for copy $copy")
+            
+            // Wait for this copy to actually print before starting the next
+            println("Waiting for copy $copy to complete printing...")
+            var attempts = 0
+            val maxAttempts = 200  // Timeout after 20 seconds (200 * 100ms)
+            var completed = false
+            
+            while (!completed && attempts < maxAttempts) {
+                delay(100)
+                val status = getPrintStatus()
+                println("Copy $copy status check: progress1=${status["progress1"]}, progress2=${status["progress2"]}, page=${status["page"]}")
+                
+                // Check if printing is complete (both progress indicators at 100)
+                if (status["progress1"] == 100 && status["progress2"] == 100) {
+                    completed = true
+                    println("Copy $copy printing completed")
+                }
+                attempts++
+            }
+            
+            if (!completed) {
+                println("Warning: Copy $copy did not complete within timeout, continuing anyway...")
+            }
+            
+            // Additional delay between copies
+            if (copy < quantity) {
+                println("Waiting 500ms before starting next copy...")
+                //delay(500)
+            }
         }
-
-        //println("Printing page...")
-
-        while (!endPagePrint()) {
-            delay(50)
-        }
-
-        while (true) {
-            val status = getPrintStatus()
-            if (status["page"] == quantity) break
-            delay(100)
-        }
-
+        println("Print loop completed, calling endPrint()...")
         endPrint()
+        println("endPrint() completed - print job finished")
     }
 
     fun rotateBitmap90Degrees(bitmap: Bitmap): Bitmap {

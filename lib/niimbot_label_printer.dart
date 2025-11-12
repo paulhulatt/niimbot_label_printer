@@ -4,20 +4,24 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class NiimbotLabelPrinter {
-  final MethodChannel methodChannel = const MethodChannel('niimbot_label_printer');
+  final MethodChannel methodChannel =
+      const MethodChannel('niimbot_label_printer');
 
   Future<String?> getPlatformVersion() async {
-    final version = await methodChannel.invokeMethod<String>('getPlatformVersion');
+    final version =
+        await methodChannel.invokeMethod<String>('getPlatformVersion');
     return version;
   }
 
   Future<bool> requestPermissionGrant() async {
-    final bool? result = await methodChannel.invokeMethod<bool>('ispermissionbluetoothgranted');
+    final bool? result =
+        await methodChannel.invokeMethod<bool>('ispermissionbluetoothgranted');
     return result ?? false;
   }
 
   Future<bool> bluetoothIsEnabled() async {
-    final bool? result = await methodChannel.invokeMethod<bool>('isBluetoothEnabled');
+    final bool? result =
+        await methodChannel.invokeMethod<bool>('isBluetoothEnabled');
     return result ?? false;
   }
 
@@ -28,7 +32,8 @@ class NiimbotLabelPrinter {
 
   /// Returns bluetooths paired devices
   Future<List<BluetoothDevice>> getPairedDevices() async {
-    final List<Object?>? result = await methodChannel.invokeMethod<List<Object?>?>('getPairedDevices');
+    final List<Object?>? result =
+        await methodChannel.invokeMethod<List<Object?>?>('getPairedDevices');
     List<BluetoothDevice> devices = [];
     for (Object? o in result!) {
       devices.add(BluetoothDevice.fromString(o.toString()));
@@ -37,7 +42,8 @@ class NiimbotLabelPrinter {
   }
 
   Future<bool> connect(BluetoothDevice device) async {
-    final bool? result = await methodChannel.invokeMethod<bool>('connect', device.address);
+    final bool? result =
+        await methodChannel.invokeMethod<bool>('connect', device.address);
     return result ?? false;
   }
 
@@ -47,7 +53,8 @@ class NiimbotLabelPrinter {
   }
 
   Future<bool> send(PrintData data) async {
-    final bool? result = await methodChannel.invokeMethod<bool>('send', data.toMap());
+    final bool? result =
+        await methodChannel.invokeMethod<bool>('send', data.toMap());
     //final bool? result = await methodChannel.invokeMethod<bool>('send', bytes);
     return result ?? false;
   }
@@ -75,7 +82,8 @@ class NiimbotLabelPrinter {
     canvas.drawImage(image, Offset(-halfWidth, -halfHeight), Paint());
 
     final picture = recorder.endRecording();
-    final rotatedImage = await picture.toImage(size.width.toInt(), size.height.toInt());
+    final rotatedImage =
+        await picture.toImage(size.width.toInt(), size.height.toInt());
 
     return rotatedImage;
   }
@@ -117,6 +125,7 @@ class PrintData {
   late bool invertColor;
   late int density;
   late int labelType;
+  late int quantity;
 
   PrintData({
     required this.data,
@@ -126,6 +135,7 @@ class PrintData {
     required this.invertColor,
     required this.density,
     required this.labelType,
+    this.quantity = 1,
   });
 
   PrintData.fromMap(Map<String, dynamic> map) {
@@ -136,6 +146,7 @@ class PrintData {
     invertColor = map['invertColor'];
     density = map['density'];
     labelType = map['labelType'];
+    quantity = map['quantity'] ?? 1;
   }
 
   Map<String, dynamic> toMap() {
@@ -152,6 +163,7 @@ class PrintData {
       'invertColor': invertColor,
       'density': density,
       'labelType': labelType,
+      'quantity': quantity,
     };
   }
 }
